@@ -1,4 +1,4 @@
-package com.squirrel.android.commands;
+package com.github.upelsin.rxJavaSchedulers;
 
 import com.google.common.util.concurrent.RateLimiter;
 import com.squirrel.android.LOG;
