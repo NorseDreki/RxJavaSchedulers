@@ -1,7 +1,12 @@
 package com.github.upelsin.rxJavaSchedulers;
 
-import com.google.common.util.concurrent.RateLimiter;
-import com.squirrel.android.LOG;
+import rx.Scheduler;
+import rx.Subscription;
+import rx.functions.Action0;
+import rx.plugins.RxJavaPlugins;
+import rx.subscriptions.CompositeSubscription;
+import rx.subscriptions.MultipleAssignmentSubscription;
+import rx.subscriptions.Subscriptions;
 
 import java.util.Queue;
 import java.util.concurrent.Future;
@@ -11,18 +16,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
-import rx.Scheduler;
-import rx.Subscription;
-import rx.functions.Action0;
-import rx.plugins.RxJavaPlugins;
-import rx.subscriptions.CompositeSubscription;
-import rx.subscriptions.MultipleAssignmentSubscription;
-import rx.subscriptions.Subscriptions;
-
 /**
- * Created by Alexey Dmitriev <mr.alex.dmitriev@gmail.com> on 04.02.2015.
+ * Implementation of priority-aware scheduler. Based on {@link ExecutorScheduler}.
+ 
+ * Created by Alexey Dmitriev <mr.alex.dmitriev@gmail.com> on 10.02.2015.
  */
-public class RateLimitingPriorityScheduler extends Scheduler {
+public class PriorityExecutorScheduler extends Scheduler {
 
     final ScheduledExecutorService executor;
 
@@ -30,17 +29,13 @@ public class RateLimitingPriorityScheduler extends Scheduler {
 
     private final int priority;
 
-    private final RateLimiter rateLimiter;
-
-    public RateLimitingPriorityScheduler(ScheduledExecutorService executor,
-                                         Queue<PriorityExecutorAction> queue,
-                                         int priority,
-                                         RateLimiter rateLimiter) {
+    public PriorityExecutorScheduler(ScheduledExecutorService executor,
+                                     Queue<PriorityExecutorAction> queue,
+                                     int priority) {
 
         this.executor = executor;
         this.queue = queue;
         this.priority = priority;
-        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -49,8 +44,7 @@ public class RateLimitingPriorityScheduler extends Scheduler {
      */
     @Override
     public Worker createWorker() {
-        LOG.d("Created new worker");
-        return new ExecutorSchedulerWorker(executor, queue, priority, rateLimiter);
+        return new ExecutorSchedulerWorker(executor, queue, priority);
     }
 
     /** Worker that schedules tasks on the executor indirectly through a trampoline mechanism. */
@@ -59,23 +53,21 @@ public class RateLimitingPriorityScheduler extends Scheduler {
         // TODO: use a better performing structure for task tracking
         final CompositeSubscription tasks;
 
-        private final Queue<PriorityExecutorAction> queue;
+        final Queue<PriorityExecutorAction> queue;
 
         final AtomicInteger wip;
 
-        private final int priority;
-        private final RateLimiter rateLimiter;
+        final int priority;
+        
 
         public ExecutorSchedulerWorker(ScheduledExecutorService executor,
                                        Queue<PriorityExecutorAction> queue,
-                                       int priority,
-                                       RateLimiter rateLimiter) {
+                                       int priority) {
             this.executor = executor;
             this.queue = queue;
             this.wip = new AtomicInteger();
             this.tasks = new CompositeSubscription();
             this.priority = priority;
-            this.rateLimiter = rateLimiter;
         }
 
         @Override
@@ -88,7 +80,6 @@ public class RateLimitingPriorityScheduler extends Scheduler {
             queue.offer(ea);
             if (wip.getAndIncrement() == 0) {
                 try {
-                    rateLimiter.acquire();
                     executor.execute(this);
                 } catch (RejectedExecutionException t) {
                     // cleanup if rejected
